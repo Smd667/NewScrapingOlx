@@ -191,9 +191,55 @@ async function parseAdDetails(adUrl: string): Promise<ExtendedAdDetails> {
             }
         });
 
-        // 📞 Телефон - УБИРАЕМ НЕНАДЕЖНЫЙ ПАРСИНГ
-        // Вместо этого просто указываем, что телефон доступен по ссылке
-        const phone = null; // Не парсим телефон, так как он динамически загружается
+        // 📞 Телефон - ПАРСИМ ЧЕРЕЗ API OLX
+        let phone: string | null = null;
+        try {
+            // Извлекаем ID объявления из URL
+            const adIdMatch = adUrl.match(/-ID([^\.]+)\.html/);
+            if (adIdMatch && adIdMatch[1]) {
+                const adId = adIdMatch[1];
+                const phoneApiUrl = `https://www.olx.kz/api/v1/offers/${adId}/phone/`;
+
+                console.log(`📞 Запрос телефона через API: ${phoneApiUrl}`);
+
+                const phoneResponse = await axios.post(phoneApiUrl, {}, {
+                    headers: {
+                        'User-Agent': getRandomUserAgent(),
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Referer': adUrl,
+                    },
+                    timeout: 10000
+                });
+
+                if (phoneResponse.data && phoneResponse.data.phone) {
+                    phone = phoneResponse.data.phone;
+                    console.log(`✅ Получен телефон: ${phone}`);
+                }
+            }
+        } catch (phoneError) {
+            console.log('❌ Не удалось получить телефон через API, пробуем альтернативные методы...');
+
+            // Альтернативный метод: поиск в данных кнопки
+            try {
+                const phoneScripts = root.querySelectorAll('script');
+                for (const script of phoneScripts) {
+                    const scriptContent = script.innerHTML;
+                    // Ищем телефон в различных форматах
+                    const phoneRegex = /(?:\+7|8)[\s\-\(\)]*\d{3}[\s\-\(\)]*\d{3}[\s\-\(\)]*\d{2}[\s\-\(\)]*\d{2}/g;
+                    const matches = scriptContent.match(phoneRegex);
+                    if (matches && matches.length > 0) {
+                        // Берем первый найденный номер и очищаем его от лишних символов
+                        phone = matches[0].replace(/[\s\-\(\)]/g, '');
+                        console.log(`✅ Найден телефон в скрипте: ${phone}`);
+                        break;
+                    }
+                }
+            } catch (altError) {
+                console.log('❌ Альтернативные методы также не сработали');
+            }
+        }
 
         // 👁️ Просмотры
         let views: string | null = null;
@@ -221,7 +267,6 @@ async function parseAdDetails(adUrl: string): Promise<ExtendedAdDetails> {
             sellerName = nameElement.textContent.trim();
         }
 
-        // 📅 Дата регистрации продавца
         let sellerSince: string | null = null;
         const sinceElement = root.querySelector('p[data-testid="member-since"]');
         if (sinceElement) {
@@ -232,7 +277,7 @@ async function parseAdDetails(adUrl: string): Promise<ExtendedAdDetails> {
             isPrivate,
             description,
             images: images.slice(0, 10),
-            phone, // всегда null, так как телефон динамический
+            phone,
             views,
             city,
             sellerName,
@@ -285,6 +330,11 @@ function saveSentAd(adId: string): void {
 
 function escapeMarkdown(text: string): string {
     if (!text) return '';
+
+    if (text.match(/^[\d\s\-\+\(\)]+$/)) {
+        return text.replace(/[\+\-\(\)]/g, '\\$&');
+    }
+
     return text
         .replace(/\s+/g, ' ')
         .replace(/^[^\S\n]+/gm, '')
@@ -293,6 +343,7 @@ function escapeMarkdown(text: string): string {
         .trim()
         .replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
 }
+
 
 
 async function sendAdToChat(bot: Bot<MyContext>, ad: Ad): Promise<void> {
@@ -309,6 +360,7 @@ async function sendAdToChat(bot: Bot<MyContext>, ad: Ad): Promise<void> {
             isPrivate,
             description,
             images,
+            phone,
             views,
             city,
             sellerName,
@@ -344,41 +396,66 @@ async function sendAdToChat(bot: Bot<MyContext>, ad: Ad): Promise<void> {
             message += `👁️ *Просмотры:* ${escapeMarkdown(views)}\n`;
         }
 
-        message += `📞 *Телефон:* Доступен по ссылке ниже\n`;
+        // Телефон теперь должен парситься правильно
+        if (phone) {
+            message += `📞 *Телефон:* \\+${escapeMarkdown(phone.replace('+', ''))}\n`;
+        } else {
+            message += `📞 *Телефон:* Не удалось получить номер\n`;
+        }
+
         message += `\n📝 *Описание:*\n${escapeMarkdown(description)}\n\n`;
         message += `🖼️ *Фото:* ${images.length} изображений\n`;
         message += `\n🔗 *Ссылка:* ${escapeMarkdown(ad.id)}`;
 
         message = message.replace(/\n\s*\n/g, '\n').trim();
 
-        // 📸 Отправляем фото с текстом как одно сообщение
+        // 📸 Отправляем фото группой с текстом
         if (images.length > 0) {
             try {
-                // Скачиваем первое фото для отправки с текстом
-                const firstImage = await downloadImage(images[0]);
-                if (firstImage) {
-                    await bot.api.sendPhoto(targetChatId, new InputFile(firstImage.buffer, firstImage.filename), {
-                        caption: message,
-                        parse_mode: 'MarkdownV2'
-                    });
-                    console.log(`✅ Отправлено основное фото с текстом: ${ad.name}`);
+                console.log(`🖼️ Подготовка ${images.length} фото для групповой отправки...`);
 
-                    // Отправляем остальные фото как группа
-                    if (images.length > 1) {
-                        const remainingImages = images.slice(1, 5); // максимум 5 фото
-                        for (let i = 0; i < remainingImages.length; i++) {
-                            const imageData = await downloadImage(remainingImages[i]);
-                            if (imageData) {
-                                await bot.api.sendPhoto(targetChatId, new InputFile(imageData.buffer, imageData.filename));
-                                await randomDelay(1000, 2000);
-                            }
+                // Скачиваем все фото (ограничиваем до 5 для избежания ограничений Telegram)
+                const photosToSend = images.slice(0, 5);
+                const mediaGroup: any[] = [];
+
+                for (let i = 0; i < photosToSend.length; i++) {
+                    const imageUrl = photosToSend[i];
+                    console.log(`⬇️ Загрузка фото ${i + 1}/${photosToSend.length}`);
+
+                    const imageData = await downloadImage(imageUrl);
+                    if (imageData) {
+                        // Для первого фото добавляем подпись (текст объявления)
+                        if (i === 0) {
+                            mediaGroup.push({
+                                type: 'photo',
+                                media: new InputFile(imageData.buffer, imageData.filename),
+                                caption: message,
+                                parse_mode: 'MarkdownV2'
+                            });
+                        } else {
+                            // Для остальных фото без подписи
+                            mediaGroup.push({
+                                type: 'photo',
+                                media: new InputFile(imageData.buffer, imageData.filename)
+                            });
                         }
-                        console.log(`✅ Отправлено ${remainingImages.length} дополнительных фото`);
                     }
                 }
-            } catch (photoError) {
-                // Если не удалось отправить с фото, отправляем только текст
-                console.error('❌ Ошибка отправки с фото, отправляем только текст:', photoError);
+
+                if (mediaGroup.length > 0) {
+                    console.log(`📤 Отправка группы из ${mediaGroup.length} фото...`);
+                    await bot.api.sendMediaGroup(targetChatId, mediaGroup);
+                    console.log(`✅ Успешно отправлено ${mediaGroup.length} фото группой`);
+                } else {
+                    // Если не удалось загрузить фото, отправляем только текст
+                    await bot.api.sendMessage(targetChatId, message, {
+                        parse_mode: 'MarkdownV2'
+                    });
+                }
+
+            } catch (mediaError) {
+                console.error('❌ Ошибка отправки медиа-группы:', mediaError);
+                // Fallback: отправляем только текст
                 await bot.api.sendMessage(targetChatId, message, {
                     parse_mode: 'MarkdownV2'
                 });
@@ -391,7 +468,10 @@ async function sendAdToChat(bot: Bot<MyContext>, ad: Ad): Promise<void> {
         }
 
         saveSentAd(ad.id);
-        console.log(`✅ Отправлено расширенное объявление: ${ad.name}`);
+        console.log(`✅ Отправлено объявление: ${ad.name}`);
+
+        // Задержка между объявлениями
+        await randomDelay(5000, 8000);
 
     } catch (error: any) {
         if (error instanceof GrammyError && error.error_code === 429) {
