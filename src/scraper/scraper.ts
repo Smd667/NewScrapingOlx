@@ -3,12 +3,12 @@ import { parse } from 'node-html-parser';
 import * as fs from 'fs';
 import { Bot, GrammyError, InputFile } from 'grammy';
 import * as path from 'path';
-import { 
-    Ad, 
-    MyContext, 
-    SentData, 
-    StoredData, 
-    Links, 
+import {
+    Ad,
+    MyContext,
+    SentData,
+    StoredData,
+    Links,
     ExtendedAdDetails,
     PhotoBuffer
 } from '../types/index';
@@ -108,7 +108,7 @@ async function downloadImage(url: string): Promise<PhotoBuffer | null> {
         });
 
         const filename = `photo_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-        
+
         return {
             buffer: Buffer.from(response.data),
             filename
@@ -166,15 +166,14 @@ async function parseAdDetails(adUrl: string): Promise<ExtendedAdDetails> {
                 .substring(0, 3000);
         }
 
-        // 🖼️ Фото - исправленные селекторы
+        // 🖼️ Фото
         const images: string[] = [];
-        
+
         // Способ 1: Из галереи
         const galleryImages = root.querySelectorAll('div[data-testid="image-galery-container"] img');
         galleryImages.forEach(img => {
             const src = img.getAttribute('src');
             if (src && !src.includes('data:image') && !src.includes('/app/static/media/')) {
-                // Преобразуем URL в максимальное качество
                 const highQualitySrc = src.replace(/;s=\d+x\d+/, ';s=1000x1000');
                 images.push(highQualitySrc);
             }
@@ -192,39 +191,16 @@ async function parseAdDetails(adUrl: string): Promise<ExtendedAdDetails> {
             }
         });
 
-        // 📞 Телефон - попытка получить через API или найти в данных
-        let phone: string | null = null;
-        
-        // Способ 1: Поиск в скриптах
-        const scripts = root.querySelectorAll('script');
-        for (const script of scripts) {
-            const scriptContent = script.innerHTML;
-            if (scriptContent.includes('phone') || scriptContent.includes('тел') || scriptContent.includes('+7')) {
-                const phoneMatches = scriptContent.match(/(?:\+7|8)[\s\-\(\)]*\d{3}[\s\-\(\)]*\d{3}[\s\-\(\)]*\d{2}[\s\-\(\)]*\d{2}/g);
-                if (phoneMatches && phoneMatches.length > 0) {
-                    phone = phoneMatches[0];
-                    break;
-                }
-            }
-        }
+        // 📞 Телефон - УБИРАЕМ НЕНАДЕЖНЫЙ ПАРСИНГ
+        // Вместо этого просто указываем, что телефон доступен по ссылке
+        const phone = null; // Не парсим телефон, так как он динамически загружается
 
-        // Способ 2: Поиск в данных кнопки
-        const phoneButton = root.querySelector('button[data-testid="show-phone"]');
-        if (phoneButton && !phone) {
-            const buttonHtml = phoneButton.toString();
-            const phoneMatch = buttonHtml.match(/(?:\+7|8)[\s\-\(\)]*\d{3}[\s\-\(\)]*\d{3}[\s\-\(\)]*\d{2}[\s\-\(\)]*\d{2}/);
-            if (phoneMatch) {
-                phone = phoneMatch[0];
-            }
-        }
-
-        // 👁️ Просмотры - исправленный селектор
+        // 👁️ Просмотры
         let views: string | null = null;
         const viewsElement = root.querySelector('span[data-testid="page-view-counter"]');
         if (viewsElement) {
             views = viewsElement.textContent.trim();
         } else {
-            // Альтернативный поиск просмотров
             const viewsText = root.querySelector('.css-16uueru');
             if (viewsText) {
                 views = viewsText.textContent.trim();
@@ -255,8 +231,8 @@ async function parseAdDetails(adUrl: string): Promise<ExtendedAdDetails> {
         return {
             isPrivate,
             description,
-            images: images.slice(0, 10), // Ограничиваем до 10 фото
-            phone,
+            images: images.slice(0, 10),
+            phone, // всегда null, так как телефон динамический
             views,
             city,
             sellerName,
@@ -318,35 +294,6 @@ function escapeMarkdown(text: string): string {
         .replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
 }
 
-// Функция для отправки фото как файлов
-async function sendPhotos(bot: Bot<MyContext>, chatId: string, imageUrls: string[]): Promise<void> {
-    if (imageUrls.length === 0) return;
-
-    console.log(`📸 Загрузка и отправка ${imageUrls.length} фото...`);
-
-    // Ограничиваем количество фото для отправки
-    const photosToSend = imageUrls.slice(0, 5);
-
-    for (let i = 0; i < photosToSend.length; i++) {
-        try {
-            const imageUrl = photosToSend[i];
-            console.log(`⬇️ Загрузка фото ${i + 1}/${photosToSend.length}: ${imageUrl}`);
-            
-            const imageData = await downloadImage(imageUrl);
-            
-            if (imageData) {
-                console.log(`📤 Отправка фото ${i + 1}...`);
-                await bot.api.sendPhoto(chatId, new InputFile(imageData.buffer, imageData.filename));
-                console.log(`✅ Фото ${i + 1} отправлено`);
-                
-                // Задержка между отправкой фото
-                await randomDelay(1000, 2000);
-            }
-        } catch (error) {
-            console.error(`❌ Ошибка отправки фото ${i + 1}:`, error);
-        }
-    }
-}
 
 async function sendAdToChat(bot: Bot<MyContext>, ad: Ad): Promise<void> {
     const targetChatId = process.env.TARGET_CHAT_ID;
@@ -358,15 +305,14 @@ async function sendAdToChat(bot: Bot<MyContext>, ad: Ad): Promise<void> {
     if (getSentAds().includes(ad.id)) return;
 
     try {
-        const { 
-            isPrivate, 
-            description, 
-            images, 
-            phone, 
-            views, 
+        const {
+            isPrivate,
+            description,
+            images,
+            views,
             city,
             sellerName,
-            sellerSince 
+            sellerSince
         } = await parseAdDetails(ad.id);
 
         if (ad.category === 'astelec' || ad.category === 'astlaptop') {
@@ -377,48 +323,72 @@ async function sendAdToChat(bot: Bot<MyContext>, ad: Ad): Promise<void> {
             }
         }
 
-        // 📸 Сначала отправляем фото
-        if (images.length > 0) {
-            await sendPhotos(bot, targetChatId, images);
-            await randomDelay(2000, 3000);
-        }
-
-        // 💬 Затем отправляем текстовое сообщение
+        // 📝 Формируем сообщение
         let message = `📌 *${escapeMarkdown(ad.name)}*\n\n`;
         message += `💰 *Цена:* ${escapeMarkdown(ad.price)}\n`;
         message += `👤 *Продавец:* ${isPrivate ? 'Частное лицо ✅' : 'Компания/Бизнес'}\n`;
-        
+
         if (sellerName) {
             message += `👨‍💼 *Имя:* ${escapeMarkdown(sellerName)}\n`;
         }
         if (sellerSince) {
             message += `📅 ${escapeMarkdown(sellerSince)}\n`;
         }
-        
+
         message += `🕒 *Опубликовано:* ${escapeMarkdown(ad.loc_date)}\n`;
-        
+
         if (city) {
             message += `🏙️ *Город:* ${escapeMarkdown(city)}\n`;
         }
         if (views) {
             message += `👁️ *Просмотры:* ${escapeMarkdown(views)}\n`;
         }
-        if (phone) {
-            message += `📞 *Телефон:* ${escapeMarkdown(phone)}\n`;
-        } else {
-            message += `📞 *Телефон:* Не удалось получить номер\n`;
-        }
-        
+
+        message += `📞 *Телефон:* Доступен по ссылке ниже\n`;
         message += `\n📝 *Описание:*\n${escapeMarkdown(description)}\n\n`;
-        
         message += `🖼️ *Фото:* ${images.length} изображений\n`;
         message += `\n🔗 *Ссылка:* ${escapeMarkdown(ad.id)}`;
 
         message = message.replace(/\n\s*\n/g, '\n').trim();
 
-        await bot.api.sendMessage(targetChatId, message, {
-            parse_mode: 'MarkdownV2'
-        });
+        // 📸 Отправляем фото с текстом как одно сообщение
+        if (images.length > 0) {
+            try {
+                // Скачиваем первое фото для отправки с текстом
+                const firstImage = await downloadImage(images[0]);
+                if (firstImage) {
+                    await bot.api.sendPhoto(targetChatId, new InputFile(firstImage.buffer, firstImage.filename), {
+                        caption: message,
+                        parse_mode: 'MarkdownV2'
+                    });
+                    console.log(`✅ Отправлено основное фото с текстом: ${ad.name}`);
+
+                    // Отправляем остальные фото как группа
+                    if (images.length > 1) {
+                        const remainingImages = images.slice(1, 5); // максимум 5 фото
+                        for (let i = 0; i < remainingImages.length; i++) {
+                            const imageData = await downloadImage(remainingImages[i]);
+                            if (imageData) {
+                                await bot.api.sendPhoto(targetChatId, new InputFile(imageData.buffer, imageData.filename));
+                                await randomDelay(1000, 2000);
+                            }
+                        }
+                        console.log(`✅ Отправлено ${remainingImages.length} дополнительных фото`);
+                    }
+                }
+            } catch (photoError) {
+                // Если не удалось отправить с фото, отправляем только текст
+                console.error('❌ Ошибка отправки с фото, отправляем только текст:', photoError);
+                await bot.api.sendMessage(targetChatId, message, {
+                    parse_mode: 'MarkdownV2'
+                });
+            }
+        } else {
+            // Если нет фото, отправляем только текст
+            await bot.api.sendMessage(targetChatId, message, {
+                parse_mode: 'MarkdownV2'
+            });
+        }
 
         saveSentAd(ad.id);
         console.log(`✅ Отправлено расширенное объявление: ${ad.name}`);
@@ -431,7 +401,7 @@ async function sendAdToChat(bot: Bot<MyContext>, ad: Ad): Promise<void> {
 
             try {
                 const simpleMessage = `📌 ${escapeMarkdown(ad.name)}\n💰 ${escapeMarkdown(ad.price)}\n🔗 ${escapeMarkdown(ad.id)}`;
-                
+
                 await bot.api.sendMessage(targetChatId, simpleMessage, {
                     parse_mode: 'MarkdownV2'
                 });
@@ -540,7 +510,7 @@ async function scrapeData(url: string, bot: Bot<MyContext>, categoryName: string
     } catch (error) {
         if (axios.isAxiosError(error)) {
             console.error(`❌ Ошибка запроса: ${error.message}\nСтатус: ${error.response?.status}`);
-            
+
             if (error.response?.status !== 403) {
                 await randomDelay(4000, 8900);
             }
