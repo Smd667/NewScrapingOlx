@@ -5,15 +5,12 @@ import {
     getJsonsCommand,
     scrapingCommand,
     setupScrapingHandlers
-} from './routes';
+} from './routes/index';
 import { startPeriodicParsing } from './scraper/scraper';
 import 'dotenv/config';
 import type { SessionData, MyContext } from './types/index';
 import { FileManager } from './utils/fileUtils';
 
-FileManager.init();
-
-// Конфигурация для отключения логов
 const botConfig = {
     client: {
         canUseWebhookReply: () => false,
@@ -30,6 +27,9 @@ const botConfig = {
 
 const bot = new Bot<MyContext>(process.env.API_TOKEN!, botConfig);
 
+// Инициализация файлов данных
+FileManager.init();
+
 // Настройка сессии
 bot.use(session({
     initial: (): SessionData => ({
@@ -42,7 +42,7 @@ bot.use(session({
 
 // Фильтрация внутренних ошибок
 bot.catch((err) => {
-    if (!err.message.includes('update_id')) { // Игнорируем стандартные ошибки
+    if (!err.message.includes('update_id')) {
         console.error("Критическая ошибка:", err);
     }
 });

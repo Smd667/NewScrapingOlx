@@ -1,6 +1,6 @@
 import { Context } from "grammy";
+import { InputFile } from "grammy";
 
-// src/types/index.ts
 export interface Ad {
     category: string;
     name: string;
@@ -9,6 +9,16 @@ export interface Ad {
     id: string;
 }
 
+export interface ExtendedAdDetails {
+    isPrivate: boolean;
+    description: string;
+    images: string[];
+    phone: string | null;
+    views: string | null;
+    city: string | null;
+    sellerName: string | null;
+    sellerSince: string | null;
+}
 
 export interface SessionData {
     step?: 'name' | 'uid' | 'url';
@@ -20,7 +30,6 @@ export interface MyContext extends Context {
     session: SessionData;
 }
 
-
 export interface StoredData {
     adds: Ad[];
 }
@@ -31,4 +40,9 @@ export interface SentData {
 
 export interface Links {
     links: Record<string, string>;
+}
+
+export interface PhotoBuffer {
+    buffer: Buffer;
+    filename: string;
 }

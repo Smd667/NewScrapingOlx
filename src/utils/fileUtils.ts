@@ -38,7 +38,6 @@ export class FileManager {
             const rawData = fs.readFileSync(DATA_FILES[fileType], 'utf-8');
             return JSON.parse(rawData) || this.DEFAULT_CONTENT[fileType];
         } catch (error) {
-            // Восстанавливаем файл при ошибке парсинга
             console.error(`Corrupted ${fileType} file, resetting to default`);
             this.saveJson(fileType, this.DEFAULT_CONTENT[fileType]);
             return this.DEFAULT_CONTENT[fileType];
