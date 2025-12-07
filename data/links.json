@@ -1,5 +1,6 @@
 {
     "links": {
-        "tel_astana": "https://www.olx.kz/elektronika/telefony-i-aksesuary/mobilnye-telefony-smartfony/astana/?search%5Bdist%5D=100&search%5Border%5D=relevance:desc&search%5Bfilter_enum_mobile_phone_manufacturer%5D%5B0%5D=2065"
+        "tel_astana": "https://www.olx.kz/elektronika/telefony-i-aksesuary/mobilnye-telefony-smartfony/astana/?search%5Bdist%5D=100&search%5Border%5D=relevance:desc&search%5Bfilter_enum_mobile_phone_manufacturer%5D%5B0%5D=2065",
+        "astconsole": "https://www.olx.kz/elektronika/igry-i-igrovye-pristavki/pristavki/astana/?search%5Bdist%5D=100"
     }
 }

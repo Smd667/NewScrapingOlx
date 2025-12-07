@@ -2,11 +2,12 @@ import { Context } from "grammy";
 import { InputFile } from "grammy";
 
 export interface Ad {
-    category: string;
     name: string;
     price: string;
     loc_date: string;
     id: string;
+    url?: string;
+    category: string;
 }
 
 export interface ExtendedAdDetails {
